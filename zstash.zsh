@@ -1,187 +1,22 @@
 #
 # zstash - A Datastore for Zsh Setting
 #
-# zstash is a persistent, context aware, hierarchical & dynamic storage
-# mechanism for zsh configuration settings. With it, you can devise
-# sophisticated schemes of settings in a simple and elegant manner that can
-# greatly simplify your zsh startup scripts, plugins and functions, all
-# without polluting the primary environment.
+# Copyright:  (c) 2016 Timothy E. Peoples
 #
-# Here's a real world example of what zstash can do for you. I use zstash to
-# define what my shell prompt looks like; here's an example {TODO: include image}.
-# If we look at the definition for this setting, we'll see it has a somewhat
-# simple structure:
-#
-#     ▶ zstash list /prompt/template
-#     /prompt/template
-#         *  '\n={user}@={host}={venv}:={pwd}\n[ ={lights} ] ={shLevel}={jobCnt}={pointer} '
-#
-# ...however, if we fetch this setting's resolved value within a given
-# context, we'll get something altogether different:
-#
-#     ▶ zstash get /prompt/template
-#
-#     %${colornum[Green4]}F%B%n%b%f@%${colornum[Orange1]}F%B%m%b%f${VENVPROMPT}:%${colornum[CornflowerBlue]}F%B%~%b%f
-#     [ ${PROMPT_LIGHTS} ] %(2L.%${colornum[Gold1]}F<${SHLVL}>%f .)%(1j.%B%${colornum[Red1]}F(%j)%f%b .)%B%(#.⭆.▶)%b 
-#
-# In the sections below, we'll walk through how this seemingly simple setting
-# results in a rich and dynamic user explerience.
-#
-# zstash is Hierarchical
-#
-#     Each setting is stored using a namespace path and a key. Namespace
-#     segments and the settings key are specified using a slash delimited
-#     string which, together, appear like a familiar file path. For example,
-#     the setting defined with a namespace path of:
-#
-#         /colors/prompt/primary/hostname
-#
-#     ...would have a key of 'hostname' in the '/colors/prompt/primary'
-#     namespace.
-#
-#     The hierarchical power of zstash is that settings need not be defined
-#     with a static path; you can instead define settings using a namespace
-#     pattern.  The setting above could instead be defined as:
-#
-#         /colors/prompt/*/hostname
-#
-#     ...or even:
-#
-#         /colors/*/hostname
-#
-#     You can still fetch its value using our original path:
-#
-#         zstash get /colors/prompt/primary/hostname
-#
-#     however, since the setting's namespace is defined with a pattern, you
-#     could also fetch '/colors/prompt/alternate/hostname' or (using the second
-#     pattern) '/colors/my-custom/thing/hostname' and still get the same value.
-#
-# zstash is Context Aware
-#
-#     In addition to its hierarchical namespace, zstash uses the shell's
-#     current context each time you fetch a settings value. The following
-#     attributes are referenced on each fetch operation:
-#
-#         namespace:    Discussed above
-#         site:         A designation for all hosts at a given site
-#         env:          A designation for a subset of hosts (dev, prod, etc...)
-#         vendor:       The value of the zsh param $VENDOR
-#         ostype:       The value of the zsh param $OSTYPE
-#         hostname:     Current hostname
-#         username:     Current Username
-#         topic:        A user-defined label for common context
-#         directory:    The current working directory ($PWD)
-#
-#     Using these context attributes, you can override particular settings in
-#     specific situations.
-#
-#     For example, let's say you want the hostname portion of your prompt to
-#     normally be green but, except when you're logged into a production
-#     machine, where red would be more useful. To do this you could define
-#     the default setting like we did above:
-#
-#         zstash set /colors/prompt/*/hostname green
-#
-#     ...and then define an override setting for production hosts:
-#
-#         zstash set --env=prod /colors/prompt/*/hostname red
-#
-# TODO: Finish This (and move it to a README.md or similar)
-# zstash is Dyanmic
-#   {Explain recursive value resolution using ={} references}
-# zstash is Persistent
-#   {Explain persistence as text for use across multiple sites using a single repo}
-#
-# ----------------------------------------------------------------------------
-# TODO: This low-level explaination belongs in a separe document
-#
-# Stash data is stored via `zstyle` using a context pattern format of:
-#
-#   :zstash:{namespace}:{site}:{environ}:{vendor}:{os}:{host}:{user}:{topic}:{directory}
-#
-# Each of these components is defined as:
-#
-#     zcfg         - The literal string "zcfg"
+#     This file is part of "zstash".
 #     
-#     {namespace}  - A namespace for this config data
-#                    (hierachies are specified with '/' similar to a file system)
+#     "zstash" is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published
+#     by the Free Software Foundation, either version 2 of the License,
+#     or (at your option) any later version.
 #     
-#     {site}       - A site specific name.
-#                    Usually, all hosts at a location or company
-#                    would share a "site" name
+#     "zstash" is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
 #     
-#     {env}        - An environment within a site
-#                    (e.g. 'production', 'staging', 'office', etc...)
-#     
-#     {vendor}     - The value of ${VENDOR}
-#
-#     {os}         - The value of ${OSTYPE}
-#
-#     {host}       - The current hostname
-#
-#     {user}       - The current username
-#
-#     {topic}      - An arbitrary label used to identify a common
-#                    context across disparate namespaces. (e.g.,
-#                    when you're in a virtual environment or working
-#                    within a git repository)
-#
-#     {dir}        - This is the current location at time of
-#                    evaluation (i.e. $PWD)
-#
-# Each of these is populated with its current value (or '*' if unavailable)
-# every time a config item is fetched.
-#
-# For example, given a user's session with the following current conditions:
-#
-#     Username:         dave
-#     Hostname:         tna2.acme.com
-#     Directory:        /projects/awesome-sauce
-#     Site Name:        acme
-#     Environment:      test
-#     Operating System: linux
-#     Vendor:           ubuntu
-#     Current Topic:    {unset}
-#
-# If Dave were to fetch the stashed value having a namespace path of
-# "/foo/bar", the zstyle "context" used for this retrieval would be:
-#
-#   :zstash:/foo:acme:test:ubuntu:linux-gnu:tna2.acme.com:dave:*:/projects/awesome-sauce bar
-#
-# Config data is stored using three components:
-#
-#     1) context pattern
-#     2) name
-#     3) value
-#
-# For example, the following could be stored to set the default color used
-# when displaying the hostname portion of the user's prompt:
-#
-#     ':zcfg:prompt:*:*:*:*:*:*' host-color  Green4
-#
-# This could then be overridden in more specific situations -- such as,
-# when the user is logged into a 'production' host:
-#
-#     ':zcfg:prompt:*:production:*:*' user-color  Red3
-#
-# ...or, wants a different color while they're inside their home directory:
-#
-#     ':zcfg:prompt:*:*:*:/home/user*' user-color  DodgerBlue
-#
-# TODO: Update This:  =() isn't a thing anymore; we always do ${(e)...} now.
-#
-# If a config value contains the sequence "=(xxx)" then the enclosed 'xxx'
-# will be evaluated as a shell command upon retrieval (similar to $() for
-# shell parameter).
-#
-# Also, config values can reference other config values in the same
-# namespace by enclosing them in a "={}" sequence.
-#
-# For example, if a user were to define the "host" segment of their prompt
-# like so:
-#
-#     ':zcfg:prompt:*:*:*:*:*:*' host-segment '%B%F${cmap[={host-color}]}%f%b'
+#     You should have received a copy of the GNU General Public License
+#     along with "zstash".  If not, see <http://www.gnu.org/licenses/>.
 #
 
 emulate -L zsh

@@ -12,17 +12,21 @@ define what my shell prompt looks like; here's an example {TODO: include image}.
 If we look at the definition for this setting, we'll see it has a somewhat
 simple structure:
 
-    ▶ zstash list /prompt/template
-    /prompt/template
-        *  '\n={user}@={host}={venv}:={pwd}\n[ ={lights} ] ={shLevel}={jobCnt}={pointer} '
+```zsh
+▶ zstash list /prompt/template
+/prompt/template
+    *  '\n={user}@={host}={venv}:={pwd}\n[ ={lights} ] ={shLevel}={jobCnt}={pointer} '
+```
 
 ...however, if we fetch this setting's resolved value within a given
 context, we'll get something altogether different:
 
-    ▶ zstash get /prompt/template
+```zsh
+▶ zstash get /prompt/template
 
-    %${colornum[Green4]}F%B%n%b%f@%${colornum[Orange1]}F%B%m%b%f${VENVPROMPT}:%${colornum[CornflowerBlue]}F%B%~%b%f
-    [ ${PROMPT_LIGHTS} ] %(2L.%${colornum[Gold1]}F<${SHLVL}>%f .)%(1j.%B%${colornum[Red1]}F(%j)%f%b .)%B%(#.⭆.▶)%b 
+%${colornum[Green4]}F%B%n%b%f@%${colornum[Orange1]}F%B%m%b%f${VENVPROMPT}:%${colornum[CornflowerBlue]}F%B%~%b%f
+[ ${PROMPT_LIGHTS} ] %(2L.%${colornum[Gold1]}F<${SHLVL}>%f .)%(1j.%B%${colornum[Red1]}F(%j)%f%b .)%B%(#.⭆.▶)%b 
+```
 
 In the sections below, we'll walk through how this seemingly simple setting
 results in a rich and dynamic user explerience.
@@ -36,8 +40,7 @@ the setting defined with a namespace path of:
 
     /colors/prompt/primary/hostname
 
-...would have a key of 'hostname' in the '/colors/prompt/primary'
-namespace.
+...would have a key of `hostname` in the `/colors/prompt/primary` namespace.
 
 The hierarchical power of zstash is that settings need not be defined
 with a static path; you can instead define settings using a namespace

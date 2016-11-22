@@ -117,6 +117,7 @@ fi
           "        get:     Get one fully resolved stash value\n"        \
           "        set:     Define a stash item\n"                       \
           "        put:     Shorthand for 'set' followed by 'save'\n"    \
+          "        remove:  Remove a stash item\n"                       \
           "        load:    Load (replace) stash from file system\n"     \
           "        merge:   Merge stash from file system\n"              \
           "        save:    Save in-memory stash to file system\n"       \
@@ -129,8 +130,21 @@ fi
     }
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    zstash::remove() {
+      zstash::set-or-remove remove $@
+    }
+
+    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::set() {
+      zstash::set-or-remove set $@
+    }
+
+    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    zstash::set-or-remove() {
+      local ma sor="${1}"; shift
+      local -a hp
       local -A args
+       TODO: Add a --all flag for 'remove' only
       zparseopts -D -A args -M \
           -site:    s:=-site   \
           -env:     e:=-env    \
@@ -141,9 +155,24 @@ fi
           -topic:   t:=-topic  \
           -dir:    -directory:=-dir d:=-dir
 
-      if [[ "$1" == "${HELP_TOKEN}" || $# -lt 2 ]]; then
-        print -u2 "USAGE: zstash set [{option} value] /namespace/key value..."
-        print -u2 "   Options: (values are as at time of evaluation)"
+      case "${sor}" in
+        set)
+          ma=2
+          hp=(
+            "USAGE: zstash set [{option} value] /namespace/key value..."
+            "   Options: (values are as at time of evaluation)"
+          )
+          ;;
+        remove)
+          ma=1
+          hp=(
+            "USAGE: zstash remove [{option} value] /namespace/key"
+          )
+          ;;
+      esac
+
+      if [[ "$1" == "${HELP_TOKEN}" || $# -lt $ma ]]; then
+        print -u2 "${(F)hp}"
         print -u2 "      -s, --site:   Site name"
         print -u2 "      -e, --env:    Environment within a site"
         print -u2 "      -v, --vendor: The value of \$VENDOR"
@@ -173,7 +202,24 @@ fi
         ctx+=( "${${${args[--${opt}]}/#=/}:-*}" )
       done
 
-      zstyle -- "${(j.:.)ctx[@]}" "${key}" "$@"
+      case "${sor}" in
+        set)
+          zstyle -- "${(j.:.)ctx[@]}" "${key}" "$@"
+          ;;
+        remove)
+          # TODO: Since `zstyle -d` doesn't fail, this needs to be much
+          #       more thorough. It should:
+          #         * Check whether the item exists
+          #         * If zero items match, error out
+          #         * If only one item matches:
+          #             * delete it
+          #             * check to make sure it's gone
+          #         * If more than one item matches:
+          #             * Check to make sure the --all flag is set. If not, error out
+          #             * If --all *is* set, remove all items
+          echo zstyle -d "${(j.:.)ctx[@]}" "${key}"
+          ;;
+      esac
     }
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -464,20 +510,21 @@ fi
   case ${cmd} in
     'help')  zstash::help-message ;;
 
-    'clear') zstash::clear $@ ;;
-    'diff')  zstash::diff  $@ ;;
-    'dump')  zstash::dump  $@ ;;
-    'get')   zstash::get   $@ ;;
-    'list')  zstash::list  $@ ;;
-    'ls')    zstash::list  $@ ;;
-    'load')  zstash::load  $@ ;;
-    'merge') zstash::merge $@ ;;
-    'save')  zstash::save  $@ ;;
-    'set')   zstash::set   $@ ;;
-    'put')   zstash::put   $@ ;;
-    'topic') zstash::topic $@ ;;
+    'clear')  zstash::clear  $@ ;;
+    'diff')   zstash::diff   $@ ;;
+    'dump')   zstash::dump   $@ ;;
+    'get')    zstash::get    $@ ;;
+    'list')   zstash::list   $@ ;;
+    'ls')     zstash::list   $@ ;;
+    'load')   zstash::load   $@ ;;
+    'merge')  zstash::merge  $@ ;;
+    'save')   zstash::save   $@ ;;
+    'set')    zstash::set    $@ ;;
+    'put')    zstash::put    $@ ;;
+    'topic')  zstash::topic  $@ ;;
+    'remove') zstash::remove $@ ;;
+    'rm')     zstash::remove $@ ;;
     # TODO: Add the following commands
-    #       remove - delete one (or more) items
     #       fetch  - fetch values into named params (instead of issuing to stdout)
     #                {do the right thing for arrays and associations}
 

@@ -1,0 +1,254 @@
+#!/bin/zsh
+
+zmodload zsh/system  # for sysparams[]
+
+LOGFILE=$( mktemp -t 'zstash-tests-XXXXX.log' )
+
+echo "Logfile: ${LOGFILE}"
+
+log() {
+  local msg="$(echo $@)"
+  local line="$(date +%T).$(( $(date +%N) / 100000 )) [$$/${sysparams[pid]}]: ${msg}"
+  echo "${line}"  >> "${LOGFILE}"
+}
+
+fail() {
+  log $@
+  print -u2 $@
+  exit 1
+}
+
+getTestFuncs() {
+  local f l s file="${${${funcfiletrace[1]}/:*/}:a}"
+  local -a orig=( $@ )
+  for f in ${(@)${(k)functions}:|orig}; do
+    s="${${${=$(whence -v "${f}")}[-1]}:a}"
+    if [[ "${f:0:4}" == "test" && "${s}" == "${file}" ]]; then
+      echo "${f}"
+    fi
+  done
+}
+
+declare -ag tmpfiles=()
+
+cleanup() {
+  log "Cleaning up"
+  local tf
+  for tf in ${tmpfiles[@]}; do
+    log "removing $tf"
+    test -e ${tf} && rm -f "${tf}" > /dev/null 2>&1
+  done
+}
+
+trap 'cleanup' INT TERM EXIT
+ 
+map() { local i f=${1}; shift; for i in $@; do eval "$f \$i" ; done }
+len() { echo $#1 }
+
+SRCDIR="${$(dirname $0):a}"
+startfuncs=( ${(k)functions} )
+
+##############################################################################
+##############################################################################
+
+simple-setup() {
+  export HOSTCONFIG_SITE=testsite
+  export HOSTCONFIG_ENV=testenv
+
+  log "Creating simple stashfile"
+  local teststash="$( tempfile -s .zstashfile )"
+  tmpfiles+=( ${teststash} )
+  log "teststash: ${teststash}"
+  log "tmpfiles: ( ${tmpfiles[@]} )"
+  cp "${SRCDIR}/testdata.stash" "${teststash}" || fail "cannot copy stashfile"
+  export ZSTASHFILE="${teststash}"
+
+  fpath+=( "$SRCDIR" )
+
+  autoload -Uz zstash
+  zstash init
+}
+
+#-----------------------------------------------------------------------------
+blank-setup() {
+  export HOSTCONFIG_SITE=testsite
+  export HOSTCONFIG_ENV=testenv
+
+  log "Creating empty stashfile"
+  local teststash="$( tempfile -s .zstashfile )"
+  tmpfiles+=( ${teststash} )
+  log "teststash: ${teststash}"
+  log "tmpfiles: ( ${tmpfiles[@]} )"
+  truncate -s 0 "${teststash}" || fail "cannot truncate stashfile"
+  export ZSTASHFILE="${teststash}"
+
+  fpath+=( "$SRCDIR" )
+
+  autoload -Uz zstash
+  zstash init
+}
+
+#-----------------------------------------------------------------------------
+stashItemsCount () {
+  echo $( zstyle -L ':zstash:/*' | wc -l )
+}
+
+#=============================================================================
+testList_Bare () {
+  simple-setup
+  local got=$(zstash list)
+  local want="/foo/thing
+    *               'the best thing'
+    [host=ahost]    'the greatest thing'"
+
+  if [[ "${got}" != "${want}" ]]; then
+    print -u2 "zstash list mismatch\nGOT:\n${got}\nWANT:\n${want}\n"
+    return 1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+testRemove_Basic () {
+  simple-setup
+  local b1 a1 b2 a2
+
+  b1="$( zstyle -L ':zstash:/foo:\*:\*:\*:\*:\*:\*:\*:\*' thing)"
+  b2="$( zstyle -L ':zstash:/foo:\*:\*:\*:\*:ahost:\*:\*:\*' thing)"
+
+  if [[ -z "${b1}" || -z "${b2}" ]]; then
+    fail "Bad initial test state: b1=>${b1}< b2=>${b2}<"
+  fi
+
+  zstash rm /foo/thing
+
+  a1="$( zstyle -L ':zstash:/foo:\*:\*:\*:\*:\*:\*:\*:\*' thing)"
+  a2="$( zstyle -L ':zstash:/foo:\*:\*:\*:\*:ahost:\*:\*:\*' thing)"
+
+  if [[ -n "${a1}" ]]; then
+    fail "'zstash rm /foo/thing' failed to delete item:\n  Before: ${b1}\n   After: ${a1}"
+  fi
+
+  if [[ -z "${a2}" ]]; then
+    fail "'zstash rm /foo/thing' deleted incorect item: /foo/thing[host='ahost'] also removed"
+  fi
+}
+
+#-----------------------------------------------------------------------------
+testRemove_Param () {
+  simple-setup
+  local b1 a1 b2 a2
+
+  b1="$( zstyle -L ${(b):-':zstash:/foo:*:*:*:*:*:*:*:*'}     thing)"
+  b2="$( zstyle -L ${(b):-':zstash:/foo:*:*:*:*:ahost:*:*:*'} thing)"
+
+  if [[ -z "${b1}" || -z "${b2}" ]]; then
+    fail "Bad initial test state: b1=>${b1}< b2=>${b2}<"
+  fi
+
+  zstash rm -h ahost /foo/thing
+
+  a1="$( zstyle -L ${(b):-':zstash:/foo:*:*:*:*:*:*:*:*'}     thing)"
+  a2="$( zstyle -L ${(b):-':zstash:/foo:*:*:*:*:ahost:*:*:*'} thing)"
+
+  if [[ -z "${a1}" ]]; then
+    fail "'zstash rm /foo/thing' removed wrong item: /foo/thing (w/out param) deleted"
+  fi
+
+  if [[ -n "${a2}" ]]; then
+    fail "'zstash rm /foo/thing[host=ahost]' failed to delete item"
+  fi
+}
+
+#-----------------------------------------------------------------------------
+testClear () {
+  simple-setup
+  local before after
+  before="$( stashItemsCount )"
+  if [[ ${before} -eq 0 ]]; then
+    fail "Bad initial test state: no data found"
+  fi
+
+  zstash clear
+
+  after="$( stashItemsCount )"
+  if [[ ${after} -ne 0 ]]; then
+    fail "zstash clear failed: Data remains: $(zstyle -L ':zstash:/*')"
+  fi
+
+}
+
+#-----------------------------------------------------------------------------
+testDump () {
+  simple-setup
+  local dump="$(zstash dump)"
+  local stash="$(< ${ZSTASHFILE})"
+
+  if [[ "${dump}" != "${stash}" ]]; then
+    fail "Dumpfile mismatch:\n" \
+         "---dump outfile---\n${dump}\n---stashfile---\n${stash}"
+  fi
+}
+
+#-----------------------------------------------------------------------------
+testSave () {
+  blank-setup
+  zstash put /test/save value
+  local got=$(< ${ZSTASHFILE} )
+  local want="zstyle ':zstash:/test:*:*:*:*:*:*:*:*' 'save' 'value'"
+
+  if [[ "${got}" != "${want}" ]]; then
+    fail "Save failed: GOT:${got}  WANT:${want}"
+  fi
+}
+
+#-----------------------------------------------------------------------------
+testMerge () {
+  simple-setup
+  local scnt=$( stashItemsCount )
+
+  zstash clear
+  zstash set /test/merge value
+
+  zstash merge
+
+  local ecnt=$( stashItemsCount )
+
+  if (( ecnt != scnt + 1 )); then
+    fail "merge failed:\n$(zstash dump)"
+  fi
+}
+
+##############################################################################
+##############################################################################
+
+local -a testfuncs=( $( getTestFuncs ${startfuncs[@]} ) )
+local maxlen=${${(On)$(map len ${testfuncs[@]})}[1]}
+maxlen=$(( maxlen + 5 ))
+
+for t in "${testfuncs[@]}"; do
+  log "Testing: ${t}"
+  local outfile="$( tempfile -s ".test.${t}.out" )"
+  log "outfile: ${outfile}"
+  tmpfiles+=( ${outfile} )
+  echo -n "Running: ${(r:${maxlen}::.:)t} "
+
+  ({
+    tmpfiles=()
+    set -e
+    eval "$t"
+  } always {
+    cleanup
+  }) > ${outfile} 2>&1
+
+  if [[ $? -eq 0 ]]; then
+    log "PASS: Test '${t}'"
+    echo "Pass"
+  else
+    log "FAIL: Test '${t}'"
+    echo "FAIL"
+    cat ${outfile}
+  fi
+done
+
+# vim:ft=zsh
+

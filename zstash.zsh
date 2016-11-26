@@ -34,7 +34,7 @@ local -r cmd="${1:-help}"
 
 local -r CTX=':zstash:'
 local -r CTXint="${CTX}_internal_"
-local -r STASHFILE="${HOME}/.zsh/stash"
+local -r STASHFILE="${ZSTASHFILE:-${HOME}/.zsh/stash}"
 
 local -r HELP_TOKEN="\u2597\u259e\u22a3_HELP_\u22a2\u259a\u2596"
 
@@ -142,17 +142,22 @@ fi
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::set-or-remove() {
       local ma sor="${1}"; shift
-      local -a hp
+      local -a hp ro
       local -A args
-       TODO: Add a --all flag for 'remove' only
-      zparseopts -D -A args -M \
-          -site:    s:=-site   \
-          -env:     e:=-env    \
-          -vendor:  v:=-vendor \
-          -os:      o:=-os     \
-          -host:    h:=-host   \
-          -user:    u:=-user   \
-          -topic:   t:=-topic  \
+
+      if [[ "${sor}" == "remove" ]]; then
+        ro=( -all a=-all )
+      fi
+
+      zparseopts -D -A args -M -- \
+          "${ro[@]}"              \
+          -site:    s:=-site      \
+          -env:     e:=-env       \
+          -vendor:  v:=-vendor    \
+          -os:      o:=-os        \
+          -host:    h:=-host      \
+          -user:    u:=-user      \
+          -topic:   t:=-topic     \
           -dir:    -directory:=-dir d:=-dir
 
       case "${sor}" in
@@ -167,12 +172,13 @@ fi
           ma=1
           hp=(
             "USAGE: zstash remove [{option} value] /namespace/key"
+            "      -a, --all:    Delete all matching items"
           )
           ;;
       esac
 
       if [[ "$1" == "${HELP_TOKEN}" || $# -lt $ma ]]; then
-        print -u2 "${(F)hp}"
+        print -u2 -- "${(F)hp}"
         print -u2 "      -s, --site:   Site name"
         print -u2 "      -e, --env:    Environment within a site"
         print -u2 "      -v, --vendor: The value of \$VENDOR"
@@ -185,10 +191,12 @@ fi
       fi  
 
       local nspath="$1"; shift
-      local ns=/${(j:/:)${${(s:/:)nspath}[1,-2]}}   # Do not quote
-      local key=${${(s:/:)nspath}[-1]}              #
+      local ns="${nspath:h}"
+      local key="${nspath:t}"
+      # local ns=/${(j:/:)${${(s:/:)nspath}[1,-2]}}   # Do not quote
+      # local key=${${(s:/:)nspath}[-1]}              #
 
-      local -a ctx 
+      local -a ctx lbl=( "${nspath}" )
 
       ctx=(
         ''  
@@ -199,25 +207,38 @@ fi
       local opt 
       for opt in site env vendor os host user topic dir 
       do
-        ctx+=( "${${${args[--${opt}]}/#=/}:-*}" )
+        local ov="${args[--${opt}]}"
+        ctx+=( "${ov:-*}" )
+
+        if [[ -n "${ov}" ]]; then
+          lbl+=( "[$opt='${ov}']" )
+        fi
       done
+
+      local ctxstr="${(j.:.)ctx[@]}"
+      local lblstr="${(j: :)label[@]}"
 
       case "${sor}" in
         set)
-          zstyle -- "${(j.:.)ctx[@]}" "${key}" "$@"
+          zstyle -- "${ctxstr}" "${key}" "$@"
           ;;
         remove)
-          # TODO: Since `zstyle -d` doesn't fail, this needs to be much
-          #       more thorough. It should:
-          #         * Check whether the item exists
-          #         * If zero items match, error out
-          #         * If only one item matches:
-          #             * delete it
-          #             * check to make sure it's gone
-          #         * If more than one item matches:
-          #             * Check to make sure the --all flag is set. If not, error out
-          #             * If --all *is* set, remove all items
-          echo zstyle -d "${(j.:.)ctx[@]}" "${key}"
+          local items=( ${(f)${:-"$(zstyle -L ${(b)ctxstr} ${key})"}} )
+
+          if [[ "${#items}" -eq 0 ]]; then
+            die "item not found: ${lblstr}"
+          fi
+
+          if [[ "${#items}" -gt 1 && -z "${args[--all]+1}" ]]; then
+            die "multiple items match: ${lblstr} (use --all)\n$(zstash::list ${nspath})"
+          fi
+
+          zstyle -d "${ctxstr}" "${key}"
+          local rem="$( zstyle -L ${(b)ctxstr} ${key})"
+
+          if [[ "${#rem}" -gt 0 ]]; then
+            die "item not deleted: ${lblstr}"
+          fi
           ;;
       esac
     }
@@ -237,33 +258,32 @@ fi
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::get() {
       # TODO: Add a "help message" to this and all other sub-commands.
+      local nspath localns ns key
       setopt localoptions rematchpcre
-      local nspath ns key
 
-      ns="$1"
-      key="$2"
+      nspath="${1}"
+      localns="${2:-/}"  # local-namespace defaults to '/'
 
-      if [[ -z "$key" ]]; then
-        # If only 1 arg given, parse it to get namespace and key
-        nspath="$ns"
-      elif [[ "$key" =~ "^/" ]]; then
-        # If key begins with a slash, toss the given namespace and parse key instead
-        nspath="$key"
+      # append '/' if there isn't one
+      if [[ "${localns[-1]}" != '/' ]]; then
+        localns="${localns}/"
       fi
 
-      # if $nspath is set, we'll split it to get namespace and key
-      if [[ -n "${nspath}" ]]; then
-        ns=/${(j:/:)${${(s:/:)nspath}[1,-2]}}   # Do not quote
-        key=${${(s:/:)nspath}[-1]}              #
+      # Prepend local-namespace if nspath is not a full path
+      if [[ "${nspath[1]}" != '/' ]]; then
+        nspath="${localns}${nspath}"
       fi
+
+      ns="${nspath:h}"
+      key="${nspath:t}"
 
       # Puke if we have neither namespace nor key
       if [[ ! ( -n "$ns" && -n "$key" ) ]]; then
-        zstash::die "usage: zstash get /namespace/key"
+        die "usage: zstash get /namespace/key"
       fi
 
       local -a zp
-      zstyle -a ${CTXint} 'params' zp
+      zstyle -a ${CTXint} 'params' zp  # TODO Construct context value instead
       zp[8]="${PWD}"
 
       local -a ctxa
@@ -282,14 +302,9 @@ fi
         return
       fi
 
-      # val="${(e)val}"
-
-      if [[ -z "${val}" ]]; then
-        return
-      fi
-
+      # TODO: Document how this regex works
       while regexp-replace val \
-        '(\=\{([^{}]++|(?1))*\})' '$(zstash::get "${ns}" "${match[2]}")'; do :; done
+        '(\=\{([^{}]++|(?1))*\})' '$(zstash::get "${match[2]}" "${ns}")'; do :; done
 
       if [[ -z "${val}" ]]; then
         return
@@ -310,7 +325,9 @@ fi
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     # TODO(tep): Make `list` better
-    #            It should be more like traversing a filesystem-ish thing
+    #            1) It should be more like traversing a filesystem-ish thing
+    #            2) Need option to *not* print namespace-path (when provided)
+    #               so it looks correct when called internally for error messages
     zstash::list() {
       local -a tmp pats comps keys values out opts
       local nspath="$1"
@@ -424,21 +441,31 @@ fi
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::save() {
-      local -a pats keys vals i lock="${STASHFILE}.lock" newf="${STASHFILE}.new.$$"
+      declare -g lock="${STASHFILE}.lock"
+      local i newf="${STASHFILE}.new.$$"
+      local -a pats keys vals
 
       # Attempt to aquire lock
       for i in {9..0}; do
-        if ln -s "${newf}" "${lock}"; then
-          TRAPEXIT="rm -f '${lock}'"
+        if ln -s "${newf}" "${lock}" 2>/dev/null; then
+          TRAPEXIT () {
+            if [[ -n "${lock}" && -h "${lock}" ]]; then
+              rm -f "${lock}"
+              test -L "${lock}" && echo "LOCK remains: ${lock}"
+            fi
+            unset lock >/dev/null || :
+          }
           break
         fi
-        zselect -t 2 # Sleep for 20ms
+        zselect -t 2 || continue # Sleep for 20ms
       done
 
       # Abort if no lock aquired
       if [[ $i -eq 0 ]]; then
         print -u2 "Cannot save. Unable to aquire lock: ${lock} -> ${newf}"
-        unset TRAPEXIT
+        if [[ -n "${functions[TRAPEXIT]}" ]]; then
+          unfunction TRAPEXIT
+        fi
         return 1
       fi
 
@@ -465,7 +492,8 @@ fi
       local pats
       zstyle -g pats || return 1
       for p in "${pats[@]}"; do
-        if [[ "${p[1,6]}" = "${CTX}" ]]; then
+        if [[ "${p[1,8]}" == "${CTX}" && "${p[9,18]}" != "_internal_" ]]; then  # TODO: Derive substring index vals
+          print -u2 "Deleting ${p}"
           zstyle -d "${p}" || return 1
         fi
       done
@@ -478,7 +506,7 @@ fi
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::diff() {
-      diff -ub "${STASHFILE}" =(zstash::dump)
+      diff -u "${STASHFILE}" =(zstash::dump)
     }
 
     #-------------------------------------------------------------------------
@@ -510,6 +538,7 @@ fi
   case ${cmd} in
     'help')  zstash::help-message ;;
 
+    'init')   : ;;
     'clear')  zstash::clear  $@ ;;
     'diff')   zstash::diff   $@ ;;
     'dump')   zstash::dump   $@ ;;

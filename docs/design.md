@@ -1,0 +1,187 @@
+
+## Inroduction
+
+Stash data is stored via `zstyle` using a context pattern format of:
+
+    :zstash:{namespace}:{site}:{environ}:{vendor}:{os}:{host}:{user}:{topic}:{directory}
+
+Each of these components is defined as:
+
+    zcfg         - The literal string "zcfg"
+    
+    {namespace}  - A namespace for this config data
+                   (hierachies are specified with '/' similar to a file system)
+    
+    {site}       - A site specific name.
+                   Usually, all hosts at a location or company
+                   would share a "site" name
+    
+    {env}        - An environment within a site
+                   (e.g. 'production', 'staging', 'office', etc...)
+    
+    {vendor}     - The value of ${VENDOR}
+
+    {os}         - The value of ${OSTYPE}
+
+    {host}       - The current hostname
+
+    {user}       - The current username
+
+    {topic}      - An arbitrary label used to identify a common
+                   context across disparate namespaces. (e.g.,
+                   when you're in a virtual environment or working
+                   within a git repository)
+
+    {dir}        - This is the current location at time of
+                   evaluation (i.e. $PWD)
+
+Each of these is populated with its current value (or `*` if unavailable)
+every time a config item is fetched.
+
+For example, given a user's session with the following current conditions:
+
+    Username:         dave
+    Hostname:         tna2.acme.com
+    Directory:        /projects/awesome-sauce
+    Site Name:        acme
+    Environment:      test
+    Operating System: linux
+    Vendor:           ubuntu
+    Current Topic:    {unset}
+
+If Dave were to fetch the stashed value having a namespace path of
+"/foo/bar", the zstyle "context" used for this retrieval would be:
+
+    :zstash:/foo:acme:test:ubuntu:linux-gnu:tna2.acme.com:dave:*:/projects/awesome-sauce bar
+
+Config data is stored using three components:
+
+    1) context pattern
+    2) name
+    3) value
+
+For example, the following could be stored to set the default color used
+when displaying the hostname portion of the user's prompt:
+
+    ':zcfg:prompt:*:*:*:*:*:*' host-color  Green4
+
+This could then be overridden in more specific situations -- such as,
+when the user is logged into a 'production' host:
+
+    ':zcfg:prompt:*:production:*:*' user-color  Red3
+
+...or, wants a different color while they're inside their home directory:
+
+    ':zcfg:prompt:*:*:*:/home/user*' user-color  DodgerBlue
+
+TODO: Update This:  =() isn't a thing anymore; we always do ${(e)...} now.
+
+If a config value contains the sequence "=(xxx)" then the enclosed 'xxx'
+will be evaluated as a shell command upon retrieval (similar to $() for
+shell parameter).
+
+Also, config values can reference other config values in the same
+namespace by enclosing them in a "={}" sequence.
+
+For example, if a user were to define the "host" segment of their prompt
+like so:
+
+    ':zcfg:prompt:*:*:*:*:*:*' host-segment '%B%F${cmap[={host-color}]}%f%b'
+
+-----------------
+
+## Recursive Namspace Path Resolution
+
+* All zstash items are addressed using a **namespace path**.
+
+* A namespace path appears similar to a filesystem path (e.g. `/like/this`) and
+is composed of a **namespace** and a **key**.
+
+* The **key** of a namespace path is the final path component (similar to a
+  file's basename) while the **namespace** is composed of all preceeding
+  components (like a directory name).
+
+EXAMPLE: Given a namespace path of `/colors/background/CornflowerBlue` the
+namespace would be `/colors/background` with a key of `CornflowerBlue`.
+
+* zstash values may reference other items using an **item reference operator**
+  composed of a namespace path wrapped with braces and preceeded by an equals
+  sign. e.g. `={/some/namespace/path}`.
+
+* Namespace paths are evaluated under two, distinct cases: initial and
+  recursive.  *Initial* evaluation is the result of a top-level `zstash get`
+  call as initiated by the user while *recursive* resolutions are performed
+  by the item reference operator.
+
+* A zstash item whose value contains an item reference operator is known as
+  the *local item* while resolving the contained namespace path.
+
+* Namespace paths come in two flavors:
+
+    * **Full Paths**  - Those begining with a slash (/) character. These paths
+                        ignore the local item.
+
+    * **Local Paths** - Everything else. These paths are always relative to
+                        local item.
+
+NOTE: Unlike a filesystem path, there is no concept of `.` or `..`; all
+namespace paths fit into one of the above two categories as indicated by
+the path's first character and the `.` character has no significant meaning
+whatsoever.
+
+* All *initial* evaluations are effectively *full path* evaluations. Since an
+  initial evaluation has no current item, a default namespace of '/' is
+  assumed.  Therefore, if the namespace path of an initial evaluation does not
+  begin with a slash character, one will be automatically prepended.
+
+* Recursive evaluations may be either local or full based on the first
+  character of the referenced namespace path within the item reference
+  operator.  Local evaluations will prepend the local item's namespace prior
+  to evaluation while full evaluations will ignore it.
+
+* Each evaluation call takes 1 or 2 parameters. The first param is always the
+  namespace path to evaluate. The second is the local namespace for which this
+  evaluation is taking place. If no local namespace is provided, a default,
+  local namespace of '/' will be used.
+
+
+### Evaluation Example
+
+Assuming the following (obviously contrived) zstash items:
+
+  |  **Namespace Path**               |  **Value**                            |
+  |  /labels/office                   |  "The ={location} Office"             |
+  |  /labels/location                 |  "Seattle, ={/offices/seattle/type}"  |
+  |  /offices/seattle/type            |  "={functions/engr}, Engineering"     |
+  |  /offices/seattle/functions/engr  |  "Commercial Middleware"              |
+
+...a call of `zstash get /labels/office` would emit:
+
+```
+The Seattle, Commercial Middleware, Engineering Office
+```
+The value of `/labels/office` contains a reference to the *local path*
+`location`. This item's *full path* would be `/labels/location` since its
+referring item's namespace is `/labels`.
+
+`/labels/location` makes a further reference to the *full path*
+`/offices/seattle/type` so its `/labels` namespace is ignored. The value for
+`/offices/seattle/type` also has a *local path* reference but this time to a
+sub-namespace path `functions/engr` which resolves to
+`/offices/seattle/functions/engr`.
+
+The recursive resolution steps for `/labels/office` are:
+
+* The ={location} Office
+* The ={labels/location} Office
+* The Seattle, ={/offices/seattle/type} Office
+* The Seattle, ={functions/engr} Engineering Office
+* The Seattle, ={/offices/seattle/functions/engr} Engineering Office
+* The Seattle, Commercial Middleware Engineering Office
+
+TODO: Add example using namespace path patterns (i.e. `/foo/*/bar`)
+
+
+
+
+

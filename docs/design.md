@@ -67,11 +67,11 @@ when displaying the hostname portion of the user's prompt:
 
 This is broken down as:
 
-  | Component        | Contents             | Notes                                 |
-  | :-------------   | :------------------  | ------------------------------------- |
-  | Namespace Path   | `/prompt/user-color` | Namespace=`/prompt` Key=`user-color`  |
-  | Context Pattern  | `*:*:*:*:*:*`        | Matches all contexts                  |
-  | Value            | `Green4`             | Scalar Value                          |
+| Component        | Contents             | Notes                                 |
+| :-------------   | :------------------  | ------------------------------------- |
+| Namespace Path   | `/prompt/user-color` | Namespace=`/prompt` Key=`user-color`  |
+| Context Pattern  | `*:*:*:*:*:*`        | Matches all contexts                  |
+| Value            | `Green4`             | Scalar Value                          |
 
 See Hierarchical Namespace for details.
 
@@ -107,10 +107,10 @@ for details.
 * A single Namespace Path may refer to two distinct elements.  The path
   "/one/two" refers to both of the following:
 
-    | Namespace  |  Key   |
-    | :--------  | :----: |
-    | `/one`     | `two`  |
-    | `/one/two` |        |
+| Namespace  |  Key   |
+| :--------  | :----: |
+| `/one`     | `two`  |
+| `/one/two` |        |
 
 
 * In the first example, the Key "two" (in Namespace "/one") may have one or
@@ -119,10 +119,10 @@ for details.
 * Simultaneously, the second Namespace (`/one/two`) may also exist as
   a container holding subsequent Values and/or Namespace Paths, such as:
 
-    | Namespace        |      Key       |
-    | :--------------- | :------------: |
-    | `/one/two`       | `BuckleMyShoe` |
-    | `/one/two/three` | `four`         |
+| Namespace        |      Key       |
+| :--------------- | :------------: |
+| `/one/two`       | `BuckleMyShoe` |
+| `/one/two/three` | `four`         |
 
 NOTE: The above structure is analogous to a filesystem element that is both
 a file and a directory at the same time.
@@ -189,12 +189,12 @@ whatsoever.
 
 Assuming the following (obviously contrived) zstash items:
 
-  |  **Namespace Path**               |  **Value**                            |
-  |  :------------------------------  |  :----------------------------------  |
-  |  /labels/office                   |  "The ={location} Office"             |
-  |  /labels/location                 |  "Seattle, ={/offices/seattle/type}"  |
-  |  /offices/seattle/type            |  "={functions/engr}, Engineering"     |
-  |  /offices/seattle/functions/engr  |  "Commercial Middleware"              |
+|  **Namespace Path**               |  **Value**                            |
+|  :------------------------------  |  :----------------------------------  |
+|  /labels/office                   |  "The ={location} Office"             |
+|  /labels/location                 |  "Seattle, ={/offices/seattle/type}"  |
+|  /offices/seattle/type            |  "={functions/engr}, Engineering"     |
+|  /offices/seattle/functions/engr  |  "Commercial Middleware"              |
 
 ...a call of `zstash get /labels/office` would emit:
 
@@ -221,8 +221,3 @@ The recursive resolution steps for `/labels/office` are:
 * The Seattle, Commercial Middleware Engineering Office
 
 <!--- TODO: Add example using namespace path patterns (i.e. `/foo/*/bar`) -->
-
-
-
-
-

@@ -1,5 +1,5 @@
 
-## Inroduction
+## Introduction
 
 Stash data is stored via `zstyle` using a context pattern format of:
 
@@ -56,41 +56,80 @@ If Dave were to fetch the stashed value having a namespace path of
 
 Config data is stored using three components:
 
-    1) context pattern
-    2) name
-    3) value
+    1) Namespace Path (Namespace + Key)
+    2) Context Pattern
+    3) Value
 
 For example, the following could be stored to set the default color used
 when displaying the hostname portion of the user's prompt:
 
-    ':zcfg:prompt:*:*:*:*:*:*' host-color  Green4
+    ':zcfg:/prompt:*:*:*:*:*:*' user-color  Green4
 
-This could then be overridden in more specific situations -- such as,
-when the user is logged into a 'production' host:
+This is broken down as:
+
+  | Component        | Contents             | Notes                                 |
+  | :-------------   | :------------------  | ------------------------------------- |
+  | Namespace Path   | `/prompt/user-color` | Namespace=`/prompt` Key=`user-color`  |
+  | Context Pattern  | `*:*:*:*:*:*`        | Matches all contexts                  |
+  | Value            | `Green4`             | Scalar Value                          |
+
+See Hierarchical Namespace for details.
+
+This value could be overridden in more specific situations -- such as, when the
+user is logged into a 'production' host -- by utilizing a different Context
+Pattern:
 
     ':zcfg:prompt:*:production:*:*' user-color  Red3
 
-...or, wants a different color while they're inside their home directory:
+...or, if the user wants a different color while they're inside their home
+directory:
 
     ':zcfg:prompt:*:*:*:/home/user*' user-color  DodgerBlue
 
-TODO: Update This:  =() isn't a thing anymore; we always do ${(e)...} now.
+Config values can reference other config values in the same namespace by
+enclosing them in a "={}" sequence. See "Recursive Namespace Path Resolution"
+for details.
 
-If a config value contains the sequence "=(xxx)" then the enclosed 'xxx'
-will be evaluated as a shell command upon retrieval (similar to $() for
-shell parameter).
+----
 
-Also, config values can reference other config values in the same
-namespace by enclosing them in a "={}" sequence.
+## Hierarchical Namespace 
 
-For example, if a user were to define the "host" segment of their prompt
-like so:
+* All Zstash elements are addressed using a "Namespace Path" which is composed
+  of a "Namespace" and an optional "Key".
 
-    ':zcfg:prompt:*:*:*:*:*:*' host-segment '%B%F${cmap[={host-color}]}%f%b'
+* A Namespace is a container for Keys and/or child Namespaces
 
------------------
+* Only Keys may have Values
 
-## Recursive Namspace Path Resolution
+* When unspecified, a default Namespace Path of "/" is assumed.
+  (This represents Namespace="/" Key="")
+
+* A single Namespace Path may refer to two distinct elements.  The path
+  "/one/two" refers to both of the following:
+
+    | Namespace  |  Key   |
+    | :--------  | :----: |
+    | `/one`     | `two`  |
+    | `/one/two` |        |
+
+
+* In the first example, the Key "two" (in Namespace "/one") may have one or
+  more Values distinguished by differing context patterns.
+
+* Simultaneously, the second Namespace (`/one/two`) may also exist as
+  a container holding subsequent Values and/or Namespace Paths, such as:
+
+    | Namespace        |      Key       |
+    | :--------------- | :------------: |
+    | `/one/two`       | `BuckleMyShoe` |
+    | `/one/two/three` | `four`         |
+
+NOTE: The above structure is analogous to a filesystem element that is both
+a file and a directory at the same time.
+
+----
+
+## Recursive Namespace Path Resolution
 
 * All zstash items are addressed using a **namespace path**.
 
@@ -98,14 +137,14 @@ like so:
 is composed of a **namespace** and a **key**.
 
 * The **key** of a namespace path is the final path component (similar to a
-  file's basename) while the **namespace** is composed of all preceeding
+  file's basename) while the **namespace** is composed of all preceding
   components (like a directory name).
 
 EXAMPLE: Given a namespace path of `/colors/background/CornflowerBlue` the
 namespace would be `/colors/background` with a key of `CornflowerBlue`.
 
 * zstash values may reference other items using an **item reference operator**
-  composed of a namespace path wrapped with braces and preceeded by an equals
+  composed of a namespace path wrapped with braces and preceded by an equals
   sign. e.g. `={/some/namespace/path}`.
 
 * Namespace paths are evaluated under two, distinct cases: initial and
@@ -118,7 +157,7 @@ namespace would be `/colors/background` with a key of `CornflowerBlue`.
 
 * Namespace paths come in two flavors:
 
-    * **Full Paths**  - Those begining with a slash (/) character. These paths
+    * **Full Paths**  - Those beginning with a slash (/) character. These paths
                         ignore the local item.
 
     * **Local Paths** - Everything else. These paths are always relative to
@@ -144,12 +183,14 @@ whatsoever.
   evaluation is taking place. If no local namespace is provided, a default,
   local namespace of '/' will be used.
 
+----
 
 ### Evaluation Example
 
 Assuming the following (obviously contrived) zstash items:
 
   |  **Namespace Path**               |  **Value**                            |
+  |  :------------------------------  |  :----------------------------------  |
   |  /labels/office                   |  "The ={location} Office"             |
   |  /labels/location                 |  "Seattle, ={/offices/seattle/type}"  |
   |  /offices/seattle/type            |  "={functions/engr}, Engineering"     |
@@ -179,7 +220,7 @@ The recursive resolution steps for `/labels/office` are:
 * The Seattle, ={/offices/seattle/functions/engr} Engineering Office
 * The Seattle, Commercial Middleware Engineering Office
 
-TODO: Add example using namespace path patterns (i.e. `/foo/*/bar`)
+<!--- TODO: Add example using namespace path patterns (i.e. `/foo/*/bar`) -->
 
 
 

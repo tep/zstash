@@ -103,6 +103,52 @@ fi
     }
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+		zstash::make-pattern-map() {
+			local sn sv p="${1}"
+			local pp=( ${(s.:.)p} )
+			local -A pa
+			for i in {1..$#SEGMENTS}; do
+				sn="${SEGMENTS[$i]}"
+				sv="${pp[i]}"
+				pa[${sn}]="${sv:-*}"
+			done
+
+			echo ${(pj<\0>)${(kv)pa}}
+		}
+
+    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+		zstash::make-pattern-label() {
+			local sn sv p="${1}"
+			local pp=( ${(s.:.)p} )
+			local -a pl
+
+			for i in {3..$#SEGMENTS}; do
+				sn="${SEGMENTS[$i]}"
+				sv="${${pp[i]}:-*}"
+				
+				if [[ "${sv}" != '*' ]]; then
+					pl+=( "${sn}=${(qq)sv}" )
+				fi
+			done
+			
+			if [[ $#pl -eq 0 ]]; then
+				print '*'
+			else
+				print "[${(j< >)pl[@]}]"
+			fi
+		}
+
+    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    zstash::split-path-components() {
+      local p="${1}"
+      test "${p[1]}" = '/' || p="/${p}"
+      p="${p:a}"
+      local -a comp=( ${(@qs:/:)p} )
+      shift comp
+      echo ${(pj<\0>Q)comp[@]}
+    }
+
+    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     zstash::help-message() {
       # TODO: Figure out how to do per-command help,
       #       e.g. "zstash help set" should print a help message for the "set" command
@@ -130,22 +176,14 @@ fi
     }
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    zstash::remove() {
-      zstash::set-or-remove remove $@
-    }
-
-    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    zstash::set() {
-      zstash::set-or-remove set $@
-    }
-
-    #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    zstash::set-or-remove() {
-      local ma sor="${1}"; shift
+    zstash::set zstash::remove () {         # Note: Two functions defined here
+      local ma mode
       local -a hp ro
       local -A args
 
-      if [[ "${sor}" == "remove" ]]; then
+      test "${0}" = 'zstash::set' && mode='SET' || mode='REM'
+
+      if [[ "${mode}" == 'REM' ]]; then
         ro=( -all a=-all )
       fi
 
@@ -160,15 +198,15 @@ fi
           -topic:   t:=-topic     \
           -dir:    -directory:=-dir d:=-dir
 
-      case "${sor}" in
-        set)
+      case "${mode}" in
+        SET)
           ma=2
           hp=(
             "USAGE: zstash set [{option} value] /namespace/key value..."
             "   Options: (values are as at time of evaluation)"
           )
           ;;
-        remove)
+        REM)
           ma=1
           hp=(
             "USAGE: zstash remove [{option} value] /namespace/key"
@@ -191,10 +229,11 @@ fi
       fi  
 
       local nspath="$1"; shift
+      test "${nspath[1]}" = '/' || nspath="/${nspath}"
+      nspath="${nspath:a}"
+
       local ns="${nspath:h}"
       local key="${nspath:t}"
-      # local ns=/${(j:/:)${${(s:/:)nspath}[1,-2]}}   # Do not quote
-      # local key=${${(s:/:)nspath}[-1]}              #
 
       local -a ctx lbl=( "${nspath}" )
 
@@ -218,11 +257,11 @@ fi
       local ctxstr="${(j.:.)ctx[@]}"
       local lblstr="${(j: :)label[@]}"
 
-      case "${sor}" in
-        set)
+      case "${mode}" in
+        SET)
           zstyle -- "${ctxstr}" "${key}" "$@"
           ;;
-        remove)
+        REM)
           local items=( ${(f)${:-"$(zstyle -L ${(b)ctxstr} ${key})"}} )
 
           if [[ "${#items}" -eq 0 ]]; then
@@ -230,7 +269,7 @@ fi
           fi
 
           if [[ "${#items}" -gt 1 && -z "${args[--all]+1}" ]]; then
-            die "multiple items match: ${lblstr} (use --all)\n$(zstash::list ${nspath})"
+            die "multiple items match: ${lblstr} (use --all)\n$(zstash::list -p ${nspath})"
           fi
 
           zstyle -d "${ctxstr}" "${key}"
@@ -295,7 +334,7 @@ fi
       zstyle -s "${ctx}" "${key}" val
 
       if [[ -n "${ZSTASH_DEBUG}" ]]; then
-        print -u2 "zstash get: namespace='${ns}' key='${key}' context='${ctx}' value='${value}'"
+        print -u2 "zstash get: namespace='${ns}' key='${key}' context='${ctx}' value='${val}'"
       fi
 
       if [[ -z "${val}" ]]; then
@@ -324,98 +363,162 @@ fi
     }
 
     #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    # TODO(tep): Make `list` better
-    #            1) It should be more like traversing a filesystem-ish thing
-    #            2) Need option to *not* print namespace-path (when provided)
-    #               so it looks correct when called internally for error messages
     zstash::list() {
-      local -a tmp pats comps keys values out opts
-      local nspath="$1"
-      local ns=${(j:/:)${${(s:/:)nspath}[1,-2]}}    # Do not quote
-      local key=${${(s:/:)nspath}[-1]}              #
-      local p k v c
+      local -A args
+      zparseopts -D -A args -M -- \
+          -help         h=-help       \
+          -namespaces   n=-namespaces \
+          -keys         k=-keys       \
+          -values       v=-values     \
+          -pathless     p=-pathless   \
+          -recurse      r=-recurse
 
-      local prev label mapkey optstr optlen=0
-      local -A vmap
+      if [[ -n "${(k)args[--help]}" ]]; then
+        print -u2 \
+          "USAGE zstash list {options} [namespace-path]\n"                        \
+          "    Options:\n"                                                        \
+          "        -h | --help        Print this help message\n"                  \
+          "        -n | --namespaces  Show only namespace\n"                      \
+          "        -k | --keys        Show only keys\n"                           \
+          "        -v | --values      Show only values\n"                         \
+          "        -p | --pathless    Do not show paths with values\n"            \
+          "        -r | --recurse     Recurse to show descendant values\n"        \
+          "\n"                                                                    \
+          "    With no arguments, 'list' will show namespaces, keys and values\n" \
+          "    for the root ('/') namespace.\n"                                   \
+          "\n"                                                                    \
+          "    The '-n', '-k', and '-v' flags may be combined. Note that if\n"    \
+          "    all of them are specified, it's the same as specifying none\n"     \
+          "    of them.\n"                                                        \
+          "\n"                                                                    \
+          "    The '-p' flag is used to suppress display of namespace paths\n"    \
+          "    while showing values. It has no meaning with respect to\n"         \
+          "    namespaces or keys.\n"                                             \
+          "\n"                                                                    \
+          "    The '-r' flag implies '-v' and only show values. It will also\n"   \
+          "    negate '-p' so namespace paths will still be shown."
 
-      if [[ -z "${ns}" && -n "${key}" ]]; then
-        ns="${key}"
-        key=''
+        return
       fi
 
-      if [[ -n "${ns}" && ! ( "${ns}" =~ '^/' ) ]]; then
-        ns="/${ns}"
+      # Determine which items to display
+      local -a modes=()
+      () {
+        local -a modenames=( namespaces keys values )
+        local m
+
+        for m in ${modenames[@]}; do
+          if [[ -n "${(k)args[--${m}]}" ]]; then
+            modes+=( "${m}" )
+          fi
+        done
+        
+        if [[ -z "${modes}" ]]; then
+          modes=( ${modenames[@]} )
+        fi
+      }
+
+      local recurse=''
+
+      if [[ -n "${(k)args[--recurse]}" ]]; then
+        recurse='yes'
+        modes=( namespaces keys values )
+        noglob unset args[--pathless]
       fi
 
-      if [[ -n "${ZSTASH_DEBUG}" ]]; then
-        print -u2 "zstash list: namespace='${ns}' key='${key}'"
-      fi
+      local nspath="${1}"
+      test "${nspath[1]}" = '/' || nspath="/${nspath}"
+      nspath="${nspath:a}"
+
+      local ns="${nspath:h}" key="${nspath:t}" lmax=0
+      local -a pats keys values out shown
+      local -A pmap vmap
 
       zstyle -g pats || return 1
       for p in "${(o)pats[@]}"; do
-        opts=()
-        comps=( ${(s.:.)p} )
+        pmap=( "${(0)$(zstash::make-pattern-map ${p})}" )
 
-        if [[ ${p} != "${CTXint}" && "${comps[1]}" == "${CTX//:/}" && ( -z "${ns}" || "${comps[2]}" == "${ns}" ) ]]; then
-          for c in {3..$#SEGMENTS}; do
-            if [[ "${comps[${c}]}" != '*' ]]; then
-              opts+=( "${SEGMENTS[${c}]}=${comps[${c}]}" )
-            fi
-          done
+        local pns="${pmap[namespace]}"
 
-          if [[ ${#opts} -eq 0 ]]; then
-            opts=( '*' )
+        if [[ "${pmap[universe]}" != "zstash" ||  "${pns[1]}" != '/' ]]; then
+          continue
+        fi
+
+        if [[ "${pns}" == "${ns}" ]]; then
+          values=()
+          out=()
+          local ostr="$( zstash::make-pattern-label "${p}")"
+          local v=''
+
+          if [[ ${#ostr} -gt ${lmax} ]]; then
+            lmax=${#ostr}
           fi
 
-          optstr="${(j: :)opts}"
-          if [[ ${#optstr} -gt ${optlen} ]]; then
-            optlen=${#optstr}
-          fi
+          # zstyle -g values "${p}" "${key}" || continue
 
-          if [[ -n "${key}" ]]; then
-            keys=( "${key}" )
-          else
-            zstyle -g keys "${p}" || continue
-          fi
-
-          for k in "${(o)keys[@]}"; do
-            values=()
-            out=()
-            zstyle -g values "${p}" "${k}" || continue
+          if zstyle -g values "${p}" "${key}"; then
             for v in "${values[@]}"; do
               out+=( "$(echo $v | sed ':a;N;$!ba;s/\n/\\\\n/g')" )
             done
 
-            tmp=( "${comps[2]}/${k}" "${optstr}" )
-            mapkey="${(j:\u02d0:)tmp}"
-            vmap[${mapkey}]="${(j:\u02df:)out}"
-          done
+            vmap[${(q)ostr}]="${(pj<\0>)${(@)out}}"
+          fi
+        elif [[ "${pns}" == "${nspath}" ]]; then
+          if [[ -n "${${:-keys}:*modes}" ]]; then
+            # Show all keys (no values)
+            zstyle -g keys "${p}"
+            for k in "${(o)keys[@]}"; do
+              local pk="${nspath}/${k}"
+              if [[ -z "${pk:*shown}" ]]; then
+                if [[ -n "${recurse}" ]]; then
+                  zstash::list -r "${pk}"
+                else
+                  print -- "- ${pk}"
+                fi
+                shown+=( "${pk}" )
+              fi
+            done
+          fi
+        else
+          if [[ -n "${${:-namespaces}:*modes}" ]]; then
+            # List *immediate* child namespaces
+            local -a pnsc=( "${(0)$(zstash::split-path-components "$pns")}" )    # Pattern NameSpace Components
+            local -a nspc=( "${(0)$(zstash::split-path-components "$nspath")}" ) # NameSpace Path Components
+            local -i pc=${#pnsc}
+            local -i nc=${#nspc}
+            local display=""
+
+            if [[ "${nspath}" == "/" ]]; then
+              display="/${pnsc[1]}"
+            elif [[ "${pns[1,${#nspath}+1]}" == "${nspath}/" ]] && (( pc > nc)); then
+              display="/${(j</>)pnsc[1,${nc}+1]}"
+            fi
+
+            if [[ -n "${display}" && -z "${display:*shown}" ]]; then
+              if [[ -n "${recurse}" ]]; then
+                zstash::list -r "${display}"
+              else
+                print "+ ${display}"
+              fi
+              shown+=( "${display}" )
+            fi
+          fi
         fi
       done
 
-      optlen=$(( optlen + 2 ))
+      if [[ $#vmap -eq 0 || -z "${${:-values}:*modes}" ]]; then
+        return
+      fi
 
-      for k in ${(ok)vmap}; do
-        tmp=( ${(s:\u02d0:)k} )
-        label="${tmp[1]}"
-        optstr="${tmp[2]}"
+      local lwid=$(( lmax + 2 ))
 
-        if [[ "${label}" != "${prev}" ]]; then
-          test -n "${prev}" && echo
-          print "${label}"
-          prev="${label}"
-        fi
-
-        if [[ "${optstr}" != "*" ]]; then
-          optstr="[${optstr}]"
-        fi
-
-        values=( ${(s:\u02df:)${vmap[$k]}} )
-        if [[ ${#values} -eq 1 ]]; then
-          print "    ${(r:${optlen}:)optstr}    ${(qq)values[1]}"
-        else
-          print "    ${(r:${optlen}:)optstr}    (${(qq)values[@]})"
-        fi
+      if [[ -z "${(k)args[--pathless]}" ]]; then
+        print -- "- ${nspath}"
+      fi
+      for ostr in ${(ok)vmap}; do
+        values=( ${(0)vmap[${ostr}]} )
+        ostr="${(Q)ostr}"
+        print -- "    ${(r:${lwid}:)ostr} ${(qq)values[@]}"
       done
     }
 

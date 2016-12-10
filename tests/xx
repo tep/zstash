@@ -1,0 +1,6 @@
+#!/bin/zsh
+
+# SRCDIR="${$(dirname $0):a:h}"
+SRCDIR="${0:a:h:h}"
+
+echo ${SRCDIR}

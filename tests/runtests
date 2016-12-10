@@ -4,8 +4,6 @@ zmodload zsh/system  # for sysparams[]
 
 LOGFILE=$( mktemp -t 'zstash-tests-XXXXX.log' )
 
-echo "Logfile: ${LOGFILE}"
-
 log() {
   local msg="$(echo $@)"
   local line="$(date +%T).$(( $(date +%N) / 100000 )) [$$/${sysparams[pid]}]: ${msg}"
@@ -32,10 +30,10 @@ getTestFuncs() {
 declare -ag tmpfiles=()
 
 cleanup() {
-  log "Cleaning up"
+  log "  Cleaning up"
   local tf
   for tf in ${tmpfiles[@]}; do
-    log "removing $tf"
+    log "  removing $tf"
     test -e ${tf} && rm -f "${tf}" > /dev/null 2>&1
   done
 }
@@ -45,7 +43,7 @@ trap 'cleanup' INT TERM EXIT
 map() { local i f=${1}; shift; for i in $@; do eval "$f \$i" ; done }
 len() { echo $#1 }
 
-SRCDIR="${$(dirname $0):a}"
+SRCDIR="${0:a:h:h}"
 startfuncs=( ${(k)functions} )
 
 ##############################################################################
@@ -55,12 +53,12 @@ simple-setup() {
   export HOSTCONFIG_SITE=testsite
   export HOSTCONFIG_ENV=testenv
 
-  log "Creating simple stashfile"
+  log "  Creating simple stashfile"
   local teststash="$( tempfile -s .zstashfile )"
   tmpfiles+=( ${teststash} )
-  log "teststash: ${teststash}"
-  log "tmpfiles: ( ${tmpfiles[@]} )"
-  cp "${SRCDIR}/testdata.stash" "${teststash}" || fail "cannot copy stashfile"
+  log "  teststash: ${teststash}"
+  log "  tmpfiles: ( ${tmpfiles[@]} )"
+  cp "${SRCDIR}/tests/testdata.stash" "${teststash}" || fail "cannot copy stashfile"
   export ZSTASHFILE="${teststash}"
 
   fpath+=( "$SRCDIR" )
@@ -74,11 +72,11 @@ blank-setup() {
   export HOSTCONFIG_SITE=testsite
   export HOSTCONFIG_ENV=testenv
 
-  log "Creating empty stashfile"
+  log "  Creating empty stashfile"
   local teststash="$( tempfile -s .zstashfile )"
   tmpfiles+=( ${teststash} )
-  log "teststash: ${teststash}"
-  log "tmpfiles: ( ${tmpfiles[@]} )"
+  log "  teststash: ${teststash}"
+  log "  tmpfiles: ( ${tmpfiles[@]} )"
   truncate -s 0 "${teststash}" || fail "cannot truncate stashfile"
   export ZSTASHFILE="${teststash}"
 
@@ -99,7 +97,13 @@ testList_Bare () {
   local got=$(zstash list)
   local want="/foo/thing
     *               'the best thing'
-    [host=ahost]    'the greatest thing'"
+    [host=ahost]    'the greatest thing'
+
+/test/one/other
+    *               'things'
+
+/test/one/value
+    *               'simple:={other}'"
 
   if [[ "${got}" != "${want}" ]]; then
     print -u2 "zstash list mismatch\nGOT:\n${got}\nWANT:\n${want}\n"
@@ -218,17 +222,43 @@ testMerge () {
   fi
 }
 
+#-----------------------------------------------------------------------------
+testGet_Simple () {
+  simple-setup
+  local t got want
+
+  local -A tests=(
+    /foo/thing      'the best thing'
+     foo/thing      'the best thing'
+    /test/one/value 'simple:things'
+  )
+
+  for t in ${(k)tests}; do
+    log "    Running: zstash get \"${t}\""
+    got=$( zstash get "${t}" )
+    want="${tests[$t]}"
+
+
+    if [[ "${got}" != "${want}" ]]; then
+      fail "    Failed: GOT:${got}  WANT:${want}"
+    else
+      log "       Pass: (Got: \"${got}\")"
+    fi
+  done
+}
+
 ##############################################################################
 ##############################################################################
 
 local -a testfuncs=( $( getTestFuncs ${startfuncs[@]} ) )
-local maxlen=${${(On)$(map len ${testfuncs[@]})}[1]}
+local cnt=0 pass=0 fail=0 maxlen=${${(On)$(map len ${testfuncs[@]})}[1]} total=${#testfuncs}
 maxlen=$(( maxlen + 5 ))
 
 for t in "${testfuncs[@]}"; do
-  log "Testing: ${t}"
+  ((cnt++))
+  log "Starting: ${t} [${cnt}/${total}]"
   local outfile="$( tempfile -s ".test.${t}.out" )"
-  log "outfile: ${outfile}"
+  log "  outfile: ${outfile}"
   tmpfiles+=( ${outfile} )
   echo -n "Running: ${(r:${maxlen}::.:)t} "
 
@@ -241,14 +271,28 @@ for t in "${testfuncs[@]}"; do
   }) > ${outfile} 2>&1
 
   if [[ $? -eq 0 ]]; then
-    log "PASS: Test '${t}'"
+    ((pass++))
+    log "  PASS: Test '${t}'"
     echo "Pass"
   else
-    log "FAIL: Test '${t}'"
+    ((fail++))
+    log "  FAIL: Test '${t}'"
     echo "FAIL"
     cat ${outfile}
   fi
+  log '----------'
 done
+
+echo
+
+if (( fail == 0 )); then
+  print "All tests pass"
+else
+  printf "Pass:%d  Fail:%d" ${pass} ${fail}
+fi
+
+echo "Logfile (will be removed in 90s): ${LOGFILE}"
+( sleep 90; rm -f "${LOGFILE}" ) &
 
 # vim:ft=zsh
 

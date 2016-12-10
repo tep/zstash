@@ -1,13 +1,13 @@
 
 () {
-  local zsdir="${$(dirname $0)/..:a}"
+  local zsdir="${0:a:h}"
 
   fpath+=( ${zsdir} )
 
   export HOSTCONFIG_SITE=test
   export HOSTCONFIG_ENV=test
 
-  cp "${zsdir}/tests/testdata.stash" "/tmp/zstash.debug.$$"
+  cp "${zsdir}/tests/debug.stash" "/tmp/zstash.debug.$$"
 
   export ZSTASHFILE="/tmp/zstash.debug.$$"
 
@@ -16,6 +16,6 @@
   alias zs='noglob zstash'
 
   zstash init && echo "Zstash Initialized"
-}
+} $@
 
 # vim:ft=zsh

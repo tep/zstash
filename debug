@@ -1,0 +1,52 @@
+#!/usr/bin/python
+
+import fcntl
+import os
+import pexpect
+import signal
+import struct
+import sys
+import termios
+
+def getWinSize():
+    s = struct.pack("HHHH", 0, 0, 0, 0)
+    a = struct.unpack('hhhh', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ , s))
+
+    return (a[0], a[1])
+
+class ZstashDebug(object):
+
+    def __init__(self):
+        env = os.environ
+        env['ZSTASH_DEBUG'] = '1'
+        env['VIRTUAL_ENV'] = '**zstash**'
+        self.zsh = pexpect.spawn("zsh", env=env, echo=False, logfile=None, dimensions=getWinSize())
+        self.zsh.logfile = self.zsh.logfile_read = self.zsh.logfile_send = None
+        signal.signal(signal.SIGWINCH, self.set_window_size)
+        self.zsh.sendline("  source tests/debug-session")
+        self.zsh.expect('tests/debug-session')
+
+    def set_window_size(self, sig=None, _=None):
+        r, c = getWinSize()
+        self.zsh.setwinsize(r, c)
+
+    def filter(self, s):
+        if 'Try:Again' in s:
+            self.run = True
+            print "Restarting"
+            self.zsh.sendeof()
+            self.zsh.close()
+            return ''
+        else:
+            return s
+
+    def run(self):
+        self.run = True
+        while self.run:
+            self.run = False
+            # self.zsh.interact(output_filter=self.filter)
+            self.zsh.interact()
+
+debug = ZstashDebug()
+debug.run()
+

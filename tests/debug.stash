@@ -1,4 +1,6 @@
 zstyle ':zstash:/foo:*:*:*:*:*:*:*:*' 'thing' 'the best thing'
 zstyle ':zstash:/foo:*:*:*:*:ahost:*:*:*' 'thing' 'the greatest thing'
+zstyle ':zstash:/test:*:*:*:*:*:*:*:*' 'a-key' 'a-value'
 zstyle ':zstash:/test/one:*:*:*:*:*:*:*:*' 'other' 'things'
 zstyle ':zstash:/test/one:*:*:*:*:*:*:*:*' 'value' 'simple:={other}'
+zstyle ':zstash:/test/one/two:*:*:*:*:*:*:*:*' 'three' 'four'

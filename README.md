@@ -29,7 +29,7 @@ context, we'll get something altogether different:
 ```
 
 In the sections below, we'll walk through how this seemingly simple setting
-results in a rich and dynamic user explerience.
+results in a rich and dynamic user experience.
 
 ## zstash is Hierarchical
 
@@ -56,7 +56,7 @@ You can still fetch its value using our original path:
 
     zstash get /colors/prompt/primary/hostname
 
-however, since the setting's namespace is defined with a pattern, you
+...however, since the setting's namespace is defined with a pattern, you
 could also fetch '/colors/prompt/alternate/hostname' or (using the second
 pattern) '/colors/my-custom/thing/hostname' and still get the same value.
 
@@ -92,8 +92,31 @@ the default setting like we did above:
 
 TODO: Finish This (and move it to a README.md or similar)
 
-## zstash is Dyanmic
-  {Explain recursive value resolution using ={} references}
+## zstash is Dynamic
+
+In addition to storing and retrieving context aware values, each of those
+values may reference other values stored within zstash. By adding a zstash
+reference enclosed within a `={}` construct, you can dynamically construct
+values at runtime while they're being retrieved. This can be done using
+a simple reference to another key in the same namespace or using a full
+namespace path.
+
+For example, setting these three values:
+
+    zstash set /example/test/thing 'This is a ={other}'
+    zstash set /example/test/other 'very ={/example/more/desc} foo'
+    zstash set /example/more/desc  'bigly'
+
+...and then resolving the first:
+
+    zstash get /example/test/thing
+
+...results in the string:
+
+    This is a very bigly foo
+
+See the section on [Recursive Namespace Path Resolution](docs/design.md#recursive-namespace-path-resolution)
+in the design document for more details.
 
 ## zstash is Persistent
   {Explain persistence as text for use across multiple sites using a single repo}
